@@ -87,7 +87,6 @@ int main(void) {
     /* create a vka (interface for interacting with the underlying allocator) */
     allocman_make_vka(&vka, allocman);
 
-    
     /* TASK 1: create a vspace object to manage our vspace */
     /* hint 1: sel4utils_bootstrap_vspace_with_bootinfo_leaky()
      * int sel4utils_bootstrap_vspace_with_bootinfo_leaky(vspace_t *vspace, sel4utils_alloc_data_t *data, seL4_CPtr page_directory, vka_t *vka, seL4_BootInfo *info)
@@ -98,9 +97,7 @@ int main(void) {
      * @param info seL4 boot info
      * @return 0 on succes.
      */
-    
-    error = sel4utils_bootstrap_vspace_with_bootinfo_leaky(&vspace,
-                                                           &data, simple_get_pd(&simple), &vka, info);
+    error = sel4utils_bootstrap_vspace_with_bootinfo_leaky(&vspace, &data, simple_get_pd(&simple), &vka, info);
     ZF_LOGF_IFERR(error, "Failed to prepare root thread's VSpace for use.\n"
                   "\tsel4utils_bootstrap_vspace_with_bootinfo reserves important vaddresses.\n"
                   "\tIts failure means we can't safely use our vaddrspace.\n");
@@ -114,7 +111,6 @@ int main(void) {
     bootstrap_configure_virtual_pool(allocman, vaddr,
                                      ALLOCATOR_VIRTUAL_POOL_SIZE, simple_get_pd(&simple));
 
-    
     /* TASK 2: use sel4utils to make a new process */
     /* hint 1: sel4utils_configure_process_custom()
      * hint 2: process_config_default_simple()
@@ -129,7 +125,6 @@ int main(void) {
      * hint 3: the elf image name is in APP_IMAGE_NAME
      */
     sel4utils_process_t new_process;
-    
     sel4utils_process_config_t config = process_config_default_simple(&simple, APP_IMAGE_NAME, APP_PRIORITY);
     error = sel4utils_configure_process_custom(&new_process, &vka, &vspace, config);
     ZF_LOGF_IFERR(error, "Failed to spawn a new thread.\n"
@@ -150,7 +145,6 @@ int main(void) {
      * will be used to send an IPC to the original cap
      */
 
-    
     /* TASK 3: make a cspacepath for the new endpoint cap */
     /* hint 1: vka_cspace_make_path()
      * void vka_cspace_make_path(vka_t *vka, seL4_CPtr slot, cspacepath_t *res)
@@ -162,10 +156,8 @@ int main(void) {
      */
     cspacepath_t ep_cap_path;
     seL4_CPtr new_ep_cap = 0;
-    
     vka_cspace_make_path(&vka, ep_object.cptr, &ep_cap_path);
 
-    
     /* TASK 4: copy the endpont cap and add a badge to the new cap */
     /* hint 1: sel4utils_mint_cap_to_process()
      * seL4_CPtr sel4utils_mint_cap_to_process(sel4utils_process_t *process, cspacepath_t src, seL4_CapRights rights, seL4_Word data)
@@ -178,17 +170,12 @@ int main(void) {
      * hint 2: for the rights, use seL4_AllRights
      * hint 3: for the badge value use EP_BADGE
      */
-    
-    new_ep_cap = sel4utils_mint_cap_to_process(&new_process, ep_cap_path,
-                                               seL4_AllRights, EP_BADGE);
-
+    new_ep_cap = sel4utils_mint_cap_to_process(&new_process, ep_cap_path, seL4_AllRights, EP_BADGE);
     ZF_LOGF_IF(new_ep_cap == 0, "Failed to mint a badged copy of the IPC endpoint into the new thread's CSpace.\n"
                "\tsel4utils_mint_cap_to_process takes a cspacepath_t: double check what you passed.\n");
 
     printf("NEW CAP SLOT: %" PRIxPTR ".\n", ep_cap_path.capPtr);
 
-
-    
     /* TASK 5: spawn the process */
     /* hint 1: sel4utils_spawn_process_v()
      * int sel4utils_spawn_process_v(sel4utils_process_t *process, vka_t *vka, vspace_t *vspace, int argc, char *argv[], int resume)
@@ -211,13 +198,20 @@ int main(void) {
      * @param ... list of words to create arguments from.
      *
      */
-    
-    new_ep_cap = sel4utils_mint_cap_to_process(&new_process, ep_cap_path,
-                                               seL4_AllRights, EP_BADGE);
-    seL4_Word argc = 1;
+    //new_ep_cap = sel4utils_mint_cap_to_process(&new_process, ep_cap_path,
+    //                                           seL4_AllRights, EP_BADGE);
+
+    void *shared_mem = vspace_new_pages(&vspace, seL4_AllRights, 1, seL4_PageBits);
+    ZF_LOGF_IF(shared_mem == NULL, "Failed to allocate shared_mem\n");
+    *(unsigned long *)shared_mem = 0xBEEFDEAD;
+    void *app_shared_mem = vspace_share_mem(&vspace, &new_process.vspace, shared_mem, 1,
+                                            seL4_PageBits, seL4_AllRights, true);
+    ZF_LOGF_IF(app_shared_mem == NULL, "Failed to share mem\n");
+
+    seL4_Word argc = 2;
     char string_args[argc][WORD_STRING_SIZE];
     char* argv[argc];
-    sel4utils_create_word_args(string_args, argv, argc, new_ep_cap);
+    sel4utils_create_word_args(string_args, argv, argc, new_ep_cap, app_shared_mem);
 
     error = sel4utils_spawn_process_v(&new_process, &vka, &vspace, argc, (char**) &argv, 1);
     ZF_LOGF_IFERR(error, "Failed to spawn and start the new thread.\n"
@@ -236,7 +230,6 @@ int main(void) {
     seL4_MessageInfo_t tag = seL4_MessageInfo_new(0, 0, 0, 0);
     seL4_Word msg;
 
-    
     /* TASK 6: wait for a message */
     /* hint 1: seL4_Recv()
      * seL4_MessageInfo_t seL4_Recv(seL4_CPtr src, seL4_Word* sender)
@@ -247,8 +240,8 @@ int main(void) {
      * hint 2: seL4_MessageInfo_t is generated during build.
      * hint 3: use the badged endpoint cap that you minted above
      */
-    
-    tag = seL4_Recv(ep_cap_path.capPtr, &sender_badge);
+   tag = seL4_Recv(ep_cap_path.capPtr, &sender_badge);
+
    /* make sure it is what we expected */
     ZF_LOGF_IF(sender_badge != EP_BADGE,
                "The badge we received from the new thread didn't match our expectation.\n");
@@ -265,7 +258,6 @@ int main(void) {
     /* modify the message */
     seL4_SetMR(0, ~msg);
 
-    
     /* TASK 7: send the modified message back */
     /* hint 1: seL4_ReplyRecv()
      * seL4_MessageInfo_t seL4_ReplyRecv(seL4_CPtr dest, seL4_MessageInfo_t msgInfo, seL4_Word *sender)
@@ -277,9 +269,7 @@ int main(void) {
      * hint 2: seL4_MessageInfo_t is generated during build.
      * hint 3: use the badged endpoint cap that you used for Call
      */
-    
     seL4_ReplyRecv(ep_cap_path.capPtr, tag, &sender_badge);
-
 
     return 0;
 }

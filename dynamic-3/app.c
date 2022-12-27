@@ -48,9 +48,10 @@ int main(int argc, char **argv) {
     ZF_LOGF_IF(argc < 1,
                "Missing arguments.\n");
     seL4_CPtr ep = (seL4_CPtr) atol(argv[0]);
-    
-    tag = seL4_Call(ep, tag);
+    void *shared_mem = (void *) atol(argv[1]);
+    printf("shared_mem: %#" PRIxPTR "\n", *(unsigned long *)shared_mem);
 
+    seL4_Call(ep, tag);
 
     /* check that we got the expected reply */
     ZF_LOGF_IF(seL4_MessageInfo_get_length(tag) != 1,
