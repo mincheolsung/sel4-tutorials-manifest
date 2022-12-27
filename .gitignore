@@ -1,0 +1,6 @@
+init
+kernel/
+projects/
+tools/
+.repo/
+README-camkes.md
