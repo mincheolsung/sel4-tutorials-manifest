@@ -3,4 +3,6 @@ kernel/
 projects/
 tools/
 .repo/
+dynamic-3/
+dynamic-3_build/
 README-camkes.md
