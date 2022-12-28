@@ -35,8 +35,8 @@ int main(int argc, char **argv) {
     tag = seL4_MessageInfo_new(0, 0, 0, 1);
     seL4_SetMR(0, MSG_DATA);
 
-    /* check arguments and get endpoint */
-    ZF_LOGF_IF(argc < 1, "Missing arguments.\n");
+    /* check arguments and get badged endpoint */
+    ZF_LOGF_IF(argc < 2, "Missing arguments.\n");
     seL4_CPtr ep = (seL4_CPtr) atol(argv[0]);
 
     /* get shared memory address */

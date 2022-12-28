@@ -32,6 +32,8 @@
 
 #include <sel4platsupport/bootinfo.h>
 
+#include "../src/ring.h"
+
 /* constants */
 #define EP_BADGE 0x61 // arbitrary (but unique) number for a badge
 #define MSG_DATA 0x6161 // arbitrary data to send
@@ -128,7 +130,7 @@ int main(void) {
     new_ep_cap = sel4utils_mint_cap_to_process(&new_process, ep_cap_path, seL4_AllRights, EP_BADGE);
     assert(new_ep_cap != 0);
 
-    printf("NEW CAP SLOT: %" PRIxPTR ".\n", ep_cap_path.capPtr);
+    //printf("NEW CAP SLOT: %" PRIxPTR ".\n", ep_cap_path.capPtr);
 
     /* set up shared memory */
     void *shared_mem = vspace_new_pages(&vspace, seL4_AllRights, 1, seL4_PageBits);
@@ -148,6 +150,7 @@ int main(void) {
 
     error = sel4utils_spawn_process_v(&new_process, &vka, &vspace, argc, (char**) &argv, 1);
     assert(error == 0);
+
 
     /* we are done, say hello */
     printf("main: hello world\n");
