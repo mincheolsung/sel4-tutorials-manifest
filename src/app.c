@@ -18,8 +18,22 @@
 #include <utils/zf_log.h>
 #include <sel4utils/sel4_zf_logif.h>
 
+#include "../src/ring.h"
+
 /* constants */
 #define MSG_DATA 0x6161 //  arbitrary data to send
+
+static struct fring *fring = NULL;
+static struct aring *req_aring = NULL;
+static struct aring *rsp_aring = NULL;
+static void *data_buf = NULL;
+
+void init_rings(void *shared_mem) {
+    fring = FRING(shared_mem);
+    req_aring = REQ_ARING(shared_mem);
+    rsp_aring = RSP_ARING(shared_mem);
+    data_buf = DATA_BUF(shared_mem);
+}
 
 int main(int argc, char **argv) {
     seL4_MessageInfo_t tag;
@@ -41,7 +55,18 @@ int main(int argc, char **argv) {
 
     /* get shared memory address */
     void *shared_mem = (void *) atol(argv[1]);
-    printf("shared_mem: %#" PRIxPTR "\n", *(unsigned long *)shared_mem);
+
+    init_rings(shared_mem);
+
+    unsigned long idx;
+    while ((idx = lfring_dequeue((struct lfring *)req_aring->ring,
+        RING_ORDER, false)) != LFRING_EMPTY) {
+
+        printf("idx: %ld\n", idx);
+
+        lfring_enqueue((struct lfring *) fring->ring,
+            RING_ORDER, idx, false);
+    }
 
     /* send and wait for a repliy */
     seL4_Call(ep, tag);

@@ -62,6 +62,29 @@ UNUSED static sel4utils_alloc_data_t data;
 #define THREAD_2_STACK_SIZE 4096
 UNUSED static int thread_2_stack[THREAD_2_STACK_SIZE];
 
+static struct fring *fring = NULL;
+static struct aring *req_aring = NULL;
+static struct aring *rsp_aring = NULL;
+static void *data_buf = NULL;
+
+static void init_rings(void *shared_mem) {
+    printf("Main: init_rings SHARED_PAGES: %ld\n", SHARED_PAGES);
+
+    fring = FRING(shared_mem);
+    req_aring = REQ_ARING(shared_mem);
+    rsp_aring = RSP_ARING(shared_mem);
+    data_buf = DATA_BUF(shared_mem);
+
+    /* init ring */
+    lfring_init_fill((struct lfring *)fring->ring, 0, BUFFER_SIZE, RING_ORDER);
+    lfring_init_empty((struct lfring *)req_aring->ring, RING_ORDER);
+    lfring_init_empty((struct lfring *)rsp_aring->ring, RING_ORDER);
+
+    atomic_init(&fring->readers, 1);
+    atomic_init(&req_aring->readers, 0);
+    atomic_init(&rsp_aring->readers, 0);
+}
+
 int main(void) {
     UNUSED int error = 0;
 
@@ -133,14 +156,21 @@ int main(void) {
     //printf("NEW CAP SLOT: %" PRIxPTR ".\n", ep_cap_path.capPtr);
 
     /* set up shared memory */
-    void *shared_mem = vspace_new_pages(&vspace, seL4_AllRights, 1, seL4_PageBits);
+    void *shared_mem = vspace_new_pages(&vspace, seL4_AllRights, SHARED_PAGES, seL4_PageBits);
     assert(shared_mem);
 
-    *(unsigned long *)shared_mem = 0xBEEFDEAD;
-
-    void *app_shared_mem = vspace_share_mem(&vspace, &new_process.vspace, shared_mem, 1,
+    void *app_shared_mem = vspace_share_mem(&vspace, &new_process.vspace, shared_mem, SHARED_PAGES,
                                             seL4_PageBits, seL4_AllRights, true);
     assert(app_shared_mem);
+
+    /* init ring buffer */
+    init_rings(shared_mem);
+
+    for (int i = 0; i < 10; i++) {
+        unsigned long idx = lfring_dequeue((struct lfring *) fring->ring, RING_ORDER, false);
+        printf("enqueue %ld\n", idx);
+        lfring_enqueue((struct lfring *)req_aring->ring, RING_ORDER, idx, false);
+    }
 
     /* spawn the process */
     seL4_Word argc = 2;
