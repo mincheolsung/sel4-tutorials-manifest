@@ -26,7 +26,7 @@
 #ifndef __BITS_LF_C11_H
 #define __BITS_LF_C11_H 1
 
-#include <stdatomic.h>
+#include "../stdatomic.h"
 #include <stdbool.h>
 
 #define LFATOMIC(x)				_Atomic(x)

@@ -1,8 +1,6 @@
 #ifndef __BITS_LF_H
 #define __BITS_LF_H 1
 
-#include <bmk-pcpu/pcpu.h>
-
 //#include "config.h"
 
 /* For the following architectures, it is cheaper to use split (word-atomic)
@@ -19,8 +17,8 @@
 typedef unsigned long lfatomic_t;
 typedef long lfsatomic_t;
 
-#define LF_CACHE_SHIFT	BMK_PCPU_L1_SHIFT
-#define LF_CACHE_BYTES	BMK_PCPU_L1_SIZE
+#define LF_CACHE_SHIFT	7
+#define LF_CACHE_BYTES	128
 
 /* GCC does not have a sane implementation of wide atomics for x86-64
    in recent versions, so use inline assembly workarounds whenever possible.

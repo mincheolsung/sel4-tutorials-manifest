@@ -29,7 +29,7 @@
 #ifndef __LFRING_H
 #define __LFRING_H	1
 
-#include "atomic.h"
+#include "stdatomic.h"
 #include <stdbool.h>
 
 #include "lf/lf.h"
