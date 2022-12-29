@@ -28,56 +28,66 @@ static struct aring *req_aring = NULL;
 static struct aring *rsp_aring = NULL;
 static void *data_buf = NULL;
 
-void init_rings(void *shared_mem) {
+static seL4_CPtr ep = 0;
+
+static void init_rings(void *shared_mem) {
     fring = FRING(shared_mem);
     req_aring = REQ_ARING(shared_mem);
     rsp_aring = RSP_ARING(shared_mem);
     data_buf = DATA_BUF(shared_mem);
 }
 
-int main(int argc, char **argv) {
-    seL4_MessageInfo_t tag;
-    seL4_Word msg;
-
-    printf("process_2: hey hey hey\n");
-
-    /*
-     * send a message to our parent, and wait for a reply
-     */
-
-    /* set the data to send. We send it in the first message register */
-    tag = seL4_MessageInfo_new(0, 0, 0, 1);
-    seL4_SetMR(0, MSG_DATA);
-
-    /* check arguments and get badged endpoint */
-    ZF_LOGF_IF(argc < 2, "Missing arguments.\n");
-    seL4_CPtr ep = (seL4_CPtr) atol(argv[0]);
-
-    /* get shared memory address */
-    void *shared_mem = (void *) atol(argv[1]);
-
-    init_rings(shared_mem);
-
+static void receiver(void) {
     unsigned long idx;
+    unsigned long fails = 0;
+
+    assert(ep != 0);
+    assert(fring != NULL);
+
+start_over:
+    atomic_store(&req_aring->readers, 1);
+    fails = 0;
+again:
     while ((idx = lfring_dequeue((struct lfring *)req_aring->ring,
         RING_ORDER, false)) != LFRING_EMPTY) {
+retry:
+        fails = 0;
 
         printf("idx: %ld\n", idx);
 
         lfring_enqueue((struct lfring *) fring->ring,
             RING_ORDER, idx, false);
     }
+    if (++fails < 1024) {
+        goto again;
+    }
+    atomic_store(&req_aring->readers, -1);
 
-    /* send and wait for a repliy */
-    seL4_Call(ep, tag);
+    idx = lfring_dequeue((struct lfring *)req_aring->ring,
+        RING_ORDER, false);
+    if (idx != LFRING_EMPTY) {
+        atomic_store(&req_aring->readers, 1);
+        goto retry;
+    }
 
-    /* check that we got the expected reply */
-    assert(seL4_MessageInfo_get_length(tag) == 1);
+    seL4_Wait(ep, NULL);
 
-    msg = seL4_GetMR(0);
-    assert(msg == ~MSG_DATA);
+    goto start_over;
+}
 
-    printf("process_2: got a reply: %#" PRIxPTR "\n", msg);
+int main(int argc, char **argv) {
+    printf("Receiver: hey hey hey\n");
+
+    /* check arguments and get badged endpoint */
+    ZF_LOGF_IF(argc < 2, "Missing arguments.\n");
+    ep = (seL4_CPtr) atol(argv[0]);
+
+    /* get shared memory address */
+    void *shared_mem = (void *) atol(argv[1]);
+
+    init_rings(shared_mem);
+
+    receiver();
 
     return 0;
 }

@@ -8,6 +8,7 @@
 
 #include <stdio.h>
 #include <assert.h>
+#include <unistd.h>
 
 #include <sel4/sel4.h>
 
@@ -67,8 +68,10 @@ static struct aring *req_aring = NULL;
 static struct aring *rsp_aring = NULL;
 static void *data_buf = NULL;
 
+static cspacepath_t ep_cap_path;
+
 static void init_rings(void *shared_mem) {
-    printf("Main: init_rings SHARED_PAGES: %ld\n", SHARED_PAGES);
+    printf("Sender: init_rings SHARED_PAGES: %ld\n", SHARED_PAGES);
 
     fring = FRING(shared_mem);
     req_aring = REQ_ARING(shared_mem);
@@ -85,6 +88,22 @@ static void init_rings(void *shared_mem) {
     atomic_init(&rsp_aring->readers, 0);
 }
 
+static void sender(void) {
+    unsigned long idx;
+again:
+    while ((idx = lfring_dequeue((struct lfring *) fring->ring, RING_ORDER, false)) == LFRING_EMPTY) {
+        /* spin for available idx from free ring */
+    }
+
+    printf("enq %ld\n", idx);
+    lfring_enqueue((struct lfring *)req_aring->ring, RING_ORDER, idx, false);
+
+    if (atomic_load(&req_aring->readers) <= 0) {
+        seL4_Signal(ep_cap_path.capPtr);
+    }
+    goto again;
+}
+
 int main(void) {
     UNUSED int error = 0;
 
@@ -93,8 +112,8 @@ int main(void) {
     ZF_LOGF_IF(info == NULL, "Failed to get bootinfo.");
 
     /* Set up logging and give us a name: useful for debugging if the thread faults */
-    zf_log_set_tag_prefix("dynamic-3:");
-    NAME_THREAD(seL4_CapInitThreadTCB, "dynamic-3");
+    zf_log_set_tag_prefix("sender:");
+    NAME_THREAD(seL4_CapInitThreadTCB, "sender");
 
     /* init simple */
     simple_default_init_bootinfo(&simple, info);
@@ -132,7 +151,7 @@ int main(void) {
     assert(error == 0);
 
     /* give the new process's thread a name */
-    NAME_THREAD(new_process.thread.tcb.cptr, "dynamic-3: process_2");
+    NAME_THREAD(new_process.thread.tcb.cptr, "receiver");
 
     /* create an endpoint */
     vka_object_t ep_object = {0};
@@ -145,7 +164,6 @@ int main(void) {
      */
 
     /* make a cspacepath for the new endpoint cap */
-    cspacepath_t ep_cap_path;
     seL4_CPtr new_ep_cap = 0;
     vka_cspace_make_path(&vka, ep_object.cptr, &ep_cap_path);
 
@@ -166,12 +184,6 @@ int main(void) {
     /* init ring buffer */
     init_rings(shared_mem);
 
-    for (int i = 0; i < 10; i++) {
-        unsigned long idx = lfring_dequeue((struct lfring *) fring->ring, RING_ORDER, false);
-        printf("enqueue %ld\n", idx);
-        lfring_enqueue((struct lfring *)req_aring->ring, RING_ORDER, idx, false);
-    }
-
     /* spawn the process */
     seL4_Word argc = 2;
     char string_args[argc][WORD_STRING_SIZE];
@@ -181,32 +193,10 @@ int main(void) {
     error = sel4utils_spawn_process_v(&new_process, &vka, &vspace, argc, (char**) &argv, 1);
     assert(error == 0);
 
-
     /* we are done, say hello */
-    printf("main: hello world\n");
+    printf("Sender: hello world\n");
 
-    /*
-     * now wait for a message from the new process, then send a reply back
-     */
-    seL4_Word sender_badge = 0;
-    seL4_MessageInfo_t tag = seL4_MessageInfo_new(0, 0, 0, 0);
-
-    /* wait for a message */
-    tag = seL4_Recv(ep_cap_path.capPtr, &sender_badge);
-
-    /* make sure it is what we expected */
-    assert(sender_badge == EP_BADGE);
-    assert(seL4_MessageInfo_get_length(tag) == 1);
-
-    /* get the message stored in the first message register */
-    seL4_Word msg = seL4_GetMR(0);
-    printf("main: got a message %#" PRIxPTR " from %#" PRIxPTR "\n", msg, sender_badge);
-
-    /* modify the message */
-    seL4_SetMR(0, ~msg);
-
-    /* send the modified message back */
-    seL4_ReplyRecv(ep_cap_path.capPtr, tag, &sender_badge);
+    sender();
 
     return 0;
 }
