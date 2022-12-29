@@ -188,9 +188,10 @@ int main(void) {
     seL4_Word argc = 2;
     char string_args[argc][WORD_STRING_SIZE];
     char* argv[argc];
+    int resume = 1;
     sel4utils_create_word_args(string_args, argv, argc, new_ep_cap, app_shared_mem);
 
-    error = sel4utils_spawn_process_v(&new_process, &vka, &vspace, argc, (char**) &argv, 1);
+    error = sel4utils_spawn_process_v(&new_process, &vka, &vspace, argc, (char**) &argv, resume);
     assert(error == 0);
 
     /* we are done, say hello */

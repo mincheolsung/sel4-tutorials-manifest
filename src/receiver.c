@@ -20,9 +20,6 @@
 
 #include "../src/ring.h"
 
-/* constants */
-#define MSG_DATA 0x6161 //  arbitrary data to send
-
 static struct fring *fring = NULL;
 static struct aring *req_aring = NULL;
 static struct aring *rsp_aring = NULL;
