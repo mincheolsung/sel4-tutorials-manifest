@@ -25,7 +25,8 @@ static struct aring *req_aring = NULL;
 static struct aring *rsp_aring = NULL;
 static void *data_buf = NULL;
 
-static seL4_CPtr ep = 0;
+static seL4_CPtr receive_ep = 0;
+static seL4_CPtr send_ep = 0;
 
 static void init_rings(void *shared_mem) {
     fring = FRING(shared_mem);
@@ -34,11 +35,30 @@ static void init_rings(void *shared_mem) {
     data_buf = DATA_BUF(shared_mem);
 }
 
+static void send(unsigned long data) {
+    unsigned long idx;
+    unsigned long *slot;
+
+    while ((idx = lfring_dequeue((struct lfring *) fring->ring, RING_ORDER, false)) == LFRING_EMPTY) {
+        /* spin for available idx from free ring */
+    }
+
+    slot = (unsigned long *)data_buf + idx;
+    slot[0] = data;
+
+    lfring_enqueue((struct lfring *)rsp_aring->ring, RING_ORDER, idx, false);
+
+    if (atomic_load(&rsp_aring->readers) <= 0) {
+        seL4_Signal(send_ep);
+    }
+}
+
 static void receiver(void) {
     unsigned long idx;
     unsigned long fails = 0;
+    unsigned long *slot;
 
-    assert(ep != 0);
+    assert(receive_ep != 0);
     assert(fring != NULL);
 
 start_over:
@@ -50,7 +70,9 @@ again:
 retry:
         fails = 0;
 
-        printf("idx: %ld\n", idx);
+        slot = (unsigned long *)data_buf + idx;
+
+        send(slot[0]);
 
         lfring_enqueue((struct lfring *) fring->ring,
             RING_ORDER, idx, false);
@@ -67,7 +89,7 @@ retry:
         goto retry;
     }
 
-    seL4_Wait(ep, NULL);
+    seL4_Wait(receive_ep, NULL);
 
     goto start_over;
 }
@@ -76,15 +98,19 @@ int main(int argc, char **argv) {
     printf("Receiver: hey hey hey\n");
 
     /* check arguments and get badged endpoint */
-    ZF_LOGF_IF(argc < 2, "Missing arguments.\n");
-    ep = (seL4_CPtr) atol(argv[0]);
+    ZF_LOGF_IF(argc < 3, "Missing arguments.\n");
+    receive_ep = (seL4_CPtr) atol(argv[0]);
+    send_ep = (seL4_CPtr) atol(argv[1]);
 
     /* get shared memory address */
-    void *shared_mem = (void *) atol(argv[1]);
+    void *shared_mem = (void *) atol(argv[2]);
 
     init_rings(shared_mem);
 
     receiver();
+ 
+    //seL4_Reply(tag);
+
 
     return 0;
 }
