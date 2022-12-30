@@ -95,7 +95,7 @@ retry:
 }
 
 int main(int argc, char **argv) {
-    printf("Receiver: hey hey hey\n");
+    printf("Server: hey hey hey\n");
 
     /* check arguments and get badged endpoint */
     ZF_LOGF_IF(argc < 3, "Missing arguments.\n");
@@ -108,9 +108,6 @@ int main(int argc, char **argv) {
     init_rings(shared_mem);
 
     receiver();
- 
-    //seL4_Reply(tag);
-
 
     return 0;
 }

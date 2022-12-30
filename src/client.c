@@ -82,7 +82,7 @@ static cspacepath_t sender_ep_cap_path;
 static cspacepath_t receiver_ep_cap_path;
 
 static void init_rings(void *shared_mem) {
-    printf("Sender: init_rings SHARED_PAGES: %ld\n", SHARED_PAGES);
+    printf("Client: init_rings SHARED_PAGES: %ld\n", SHARED_PAGES);
 
     fring = FRING(shared_mem);
     req_aring = REQ_ARING(shared_mem);
@@ -370,7 +370,7 @@ int main(void) {
     create_receiver_thread();
 
     /* we are done, say hello */
-    printf("Sender: hello world\n");
+    printf("Client: hello world\n");
 
     //seL4_DebugDumpScheduler();
     sender(100000);
