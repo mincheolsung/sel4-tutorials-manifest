@@ -4,8 +4,8 @@ $ ./init --tut dynamic-3
 $ cd dynamic-3
 $ rm main.c
 $ rm app.c
-$ ln -s ../src/client.c main.c
-$ ln -s ../src/server.c app.c
+$ ln -s ../src/main.c main.c
+$ ln -s ../src/app.c app.c
 $ cd ../dynamic-3_build
 $ ninja
 $ ./simulate

@@ -223,7 +223,7 @@ static void create_receiver_thread(void) {
     error = seL4_TCB_SetPriority(tcb_object.cptr, simple_get_tcb(&simple), 255);
     assert(error == 0);
 
-    NAME_THREAD(tcb_object.cptr, "client: receiver");
+    NAME_THREAD(tcb_object.cptr, "main: receiver");
 
     /* set start up registers for the new thread */
     UNUSED seL4_UserContext regs = {0};
@@ -272,7 +272,7 @@ void static create_server_process(void) {
     assert(error == 0);
 
     /* give the new process's thread a name */
-    NAME_THREAD(new_process.thread.tcb.cptr, "server");
+    NAME_THREAD(new_process.thread.tcb.cptr, "app");
 
     /* create an endpoint for sender */
     vka_object_t sender_ep_object = {0};
@@ -335,8 +335,8 @@ int main(void) {
     assert(info != NULL);
 
     /* Set up logging and give us a name: useful for debugging if the thread faults */
-    zf_log_set_tag_prefix("client:");
-    NAME_THREAD(seL4_CapInitThreadTCB, "client");
+    zf_log_set_tag_prefix("main:");
+    NAME_THREAD(seL4_CapInitThreadTCB, "main");
 
     /* init simple */
     simple_default_init_bootinfo(&simple, info);
