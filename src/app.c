@@ -98,7 +98,7 @@ retry:
 }
 
 int main(int argc, char **argv) {
-    printf("Server: hey hey hey\n");
+    printf("App: hey hey hey\n");
 
     /* check arguments and get badged endpoint */
     ZF_LOGF_IF(argc < 3, "Missing arguments.\n");
