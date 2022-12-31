@@ -73,10 +73,12 @@ UNUSED static int thread_2_stack[THREAD_2_STACK_SIZE];
 /* tls region for the new thread */
 static char tls_region[CONFIG_SEL4RUNTIME_STATIC_TLS] = {};
 
-static struct fring *fring = NULL;
+static struct fring *req_fring = NULL;
+static struct fring *rsp_fring = NULL;
 static struct aring *req_aring = NULL;
 static struct aring *rsp_aring = NULL;
-static void *data_buf = NULL;
+static void *req_data_buf = NULL;
+static void *rsp_data_buf = NULL;
 
 static cspacepath_t sender_ep_cap_path;
 static cspacepath_t receiver_ep_cap_path;
@@ -84,31 +86,35 @@ static cspacepath_t receiver_ep_cap_path;
 static void init_rings(void *shared_mem) {
     printf("Client: init_rings SHARED_PAGES: %ld\n", SHARED_PAGES);
 
-    fring = FRING(shared_mem);
+    req_fring = REQ_FRING(shared_mem);
+    rsp_fring = RSP_FRING(shared_mem);
     req_aring = REQ_ARING(shared_mem);
     rsp_aring = RSP_ARING(shared_mem);
-    data_buf = DATA_BUF(shared_mem);
+    req_data_buf = REQ_DATA_BUF(shared_mem);
+    rsp_data_buf = RSP_DATA_BUF(shared_mem);
 
     /* init ring */
-    lfring_init_fill((struct lfring *)fring->ring, 0, BUFFER_SIZE, RING_ORDER);
+    lfring_init_fill((struct lfring *)req_fring->ring, 0, BUFFER_SIZE, RING_ORDER);
+    lfring_init_fill((struct lfring *)rsp_fring->ring, 0, BUFFER_SIZE, RING_ORDER);
     lfring_init_empty((struct lfring *)req_aring->ring, RING_ORDER);
     lfring_init_empty((struct lfring *)rsp_aring->ring, RING_ORDER);
 
-    atomic_init(&fring->readers, 1);
+    atomic_init(&req_fring->readers, 1);
+    atomic_init(&rsp_fring->readers, 1);
     atomic_init(&req_aring->readers, 0);
     atomic_init(&rsp_aring->readers, 0);
 }
 
-static void sender(int iter) {
+static void send(int iter) {
     unsigned long idx;
     unsigned long cnt = 0;
     unsigned long *slot;
 again:
-    while ((idx = lfring_dequeue((struct lfring *) fring->ring, RING_ORDER, false)) == LFRING_EMPTY) {
+    while ((idx = lfring_dequeue((struct lfring *) req_fring->ring, RING_ORDER, false)) == LFRING_EMPTY) {
         /* spin for available idx from free ring */
     }
 
-    slot = (unsigned long *)data_buf + idx;
+    slot = (unsigned long *)req_data_buf + idx;
     slot[0] = cnt;
 
     lfring_enqueue((struct lfring *)req_aring->ring, RING_ORDER, idx, false);
@@ -130,7 +136,7 @@ static void receiver(void) {
     unsigned long *slot;
 
     assert(receiver_ep_cap_path.capPtr != 0);
-    assert(fring != NULL);
+    assert(req_fring != NULL);
 
 start_over:
     atomic_store(&rsp_aring->readers, 1);
@@ -141,9 +147,10 @@ again:
 retry:
         fails = 0;
 
-        slot = (unsigned long *)data_buf + idx;
+        slot = (unsigned long *)rsp_data_buf + idx;
+        //printf("%lu\n", slot[0]);
 
-        lfring_enqueue((struct lfring *) fring->ring,
+        lfring_enqueue((struct lfring *) rsp_fring->ring,
             RING_ORDER, idx, false);
     }
     if (++fails < 1024) {
@@ -298,14 +305,13 @@ void static create_server_process(void) {
     receiver_ep_cap = sel4utils_mint_cap_to_process(&new_process, receiver_ep_cap_path, seL4_AllRights, EP_BADGE2);
     assert(receiver_ep_cap != 0);
 
-
     /* set up shared memory */
     void *shared_mem = vspace_new_pages(&vspace, seL4_AllRights, SHARED_PAGES, seL4_PageBits);
-    assert(shared_mem);
+    assert(shared_mem != NULL);
 
     void *app_shared_mem = vspace_share_mem(&vspace, &new_process.vspace, shared_mem, SHARED_PAGES,
                                             seL4_PageBits, seL4_AllRights, true);
-    assert(app_shared_mem);
+    assert(app_shared_mem != NULL);
 
     /* init ring buffer */
     init_rings(shared_mem);
@@ -373,7 +379,7 @@ int main(void) {
     printf("Client: hello world\n");
 
     //seL4_DebugDumpScheduler();
-    sender(100000);
+    send(100000);
 
     return 0;
 }
