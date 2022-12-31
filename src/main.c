@@ -260,10 +260,10 @@ static void create_receiver_thread(void) {
     assert(error == 0);
 }
 
-void static create_server_process(void) {
+void static create_process(void) {
     UNUSED int error = 0;
 
-    /* use sel4utils to make a new process (Server process) */
+    /* use sel4utils to make a new process */
     sel4utils_process_t new_process;
     sel4utils_process_config_t config = process_config_default_simple(&simple, APP_IMAGE_NAME, APP_PRIORITY);
     config = process_config_auth(config, simple_get_tcb(&simple));
@@ -366,9 +366,9 @@ int main(void) {
                                      ALLOCATOR_VIRTUAL_POOL_SIZE, simple_get_pd(&simple));
 
     /*
-     * now create a server process
+     * now create a process
      */
-    create_server_process();
+    create_process();
 
     /*
      * now create a receiver thread
