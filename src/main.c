@@ -16,6 +16,7 @@
 #include <simple-default/simple-default.h>
 
 #include <vka/object.h>
+#include <vka/object_capops.h>
 
 #include <allocman/allocman.h>
 #include <allocman/bootstrap.h>
@@ -38,10 +39,12 @@
 
 
 #include "../src/ring.h"
+#include "../src/counter.h"
 
 /* constants */
 #define EP_BADGE1 0x61 // arbitrary (but unique) number for a badge
 #define EP_BADGE2 0x62 // arbitrary (but unique) number for a badge
+#define SEM_BADGE 0x63
 
 #define IPCBUF_FRAME_SIZE_BITS 12 // use a 4K frame for the IPC buffer
 #define IPCBUF_VADDR 0x7000000 // arbitrary (but free) address for IPC buffer
@@ -82,6 +85,12 @@ static void *rsp_data_buf = NULL;
 
 static cspacepath_t sender_ep_cap_path;
 static cspacepath_t receiver_ep_cap_path;
+static cspacepath_t sem_cap_path;
+
+static uint64_t sem_down_overhead = 0;
+static uint64_t sem_up_overhead = 0;
+static uint64_t start, end;
+#define ITER 1000000
 
 static void init_rings(void *shared_mem) {
     printf("Main: init_rings SHARED_PAGES: %ld\n", SHARED_PAGES);
@@ -105,29 +114,47 @@ static void init_rings(void *shared_mem) {
     atomic_init(&rsp_aring->readers, 0);
 }
 
-static void send(int iter) {
+static void send_message(unsigned long message) {
     unsigned long idx;
-    unsigned long cnt = 0;
     unsigned long *slot;
-again:
+
     while ((idx = lfring_dequeue((struct lfring *) req_fring->ring, RING_ORDER, false)) == LFRING_EMPTY) {
         /* spin for available idx from free ring */
     }
 
-    slot = (unsigned long *)req_data_buf + idx;
-    slot[0] = cnt;
+    slot = (unsigned long *)((char *)req_data_buf + idx * DATA_SLOT_SIZE);
+    slot[0] = message;
+    slot[1] = message + 1;
+    slot[2] = message + 2;
+    slot[3] = message + 3;
 
     lfring_enqueue((struct lfring *)req_aring->ring, RING_ORDER, idx, false);
 
     if (atomic_load(&req_aring->readers) <= 0) {
         seL4_Signal(sender_ep_cap_path.capPtr);
     }
+}
 
-    if (++cnt >= iter) {
-        return;
+static void receive_message(unsigned long m0, unsigned long m1, unsigned long m2, unsigned long m3) {
+    uint64_t up_start, up_end;
+
+    READ_COUNTER_BEFORE(up_start);
+    seL4_Signal(sem_cap_path.capPtr);
+    READ_COUNTER_AFTER(up_end);
+    sem_up_overhead += (up_end - up_start);
+
+    /* sanity check */
+    assert(m1 == m0 + 1 && m2 == m1 + 1 && m3 == m2 + 1);
+
+    if (m0 == ITER-1) {
+        READ_COUNTER_AFTER(end);
+        printf("message: (%lu, %lu, %lu, %lu), ITER: %u, overhead: %lu, cycle: %lu\n",
+            m0, m1, m2, m3, ITER,
+            (sem_up_overhead + sem_down_overhead)/ITER,
+            (end - start - sem_up_overhead - sem_down_overhead)/ITER);
+    } else if (m0 == ITER) {
+        assert(false);
     }
-
-    goto again;
 }
 
 static void receiver(void) {
@@ -147,8 +174,8 @@ again:
 retry:
         fails = 0;
 
-        slot = (unsigned long *)rsp_data_buf + idx;
-        //printf("%lu\n", slot[0]);
+        slot = (unsigned long *)((char *)rsp_data_buf + idx * DATA_SLOT_SIZE);
+        receive_message(slot[0], slot[1], slot[2], slot[3]);
 
         lfring_enqueue((struct lfring *) rsp_fring->ring,
             RING_ORDER, idx, false);
@@ -253,6 +280,16 @@ static void create_receiver_thread(void) {
 
     /* set the TLS base of the new thread */
     error = seL4_TCB_SetTLSBase(tcb_object.cptr, tls);
+    assert(error == 0);
+
+
+    /* allocate a semaphore */
+    static vka_object_t sem_object = {0};
+    error = vka_alloc_endpoint(&vka, &sem_object);
+    assert(error == 0);
+
+    /* badge the semaphore */
+    error = vka_mint_object(&vka, &sem_object, &sem_cap_path, seL4_AllRights, SEM_BADGE);
     assert(error == 0);
 
     /* start the new thread running */
@@ -379,7 +416,16 @@ int main(void) {
     printf("Main: hello world\n");
 
     //seL4_DebugDumpScheduler();
-    send(100000);
+
+    uint64_t down_start, down_end;
+    READ_COUNTER_BEFORE(start);
+    for (unsigned long i = 0; i < ITER; i++) {
+        send_message(i);
+        READ_COUNTER_BEFORE(down_start);
+        seL4_Wait(sem_cap_path.capPtr, NULL);
+        READ_COUNTER_AFTER(down_end);
+        sem_down_overhead += (down_end - down_start);
+    }
 
     return 0;
 }

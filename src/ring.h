@@ -5,7 +5,7 @@
 
 #define RING_ORDER   10
 #define BUFFER_ORDER 10
-#define DATA_SLOT_SIZE 64
+#define DATA_SLOT_SIZE 32
 
 #define PAGE_SIZE 4096
 

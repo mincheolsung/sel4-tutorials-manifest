@@ -39,7 +39,7 @@ static void init_rings(void *shared_mem) {
     rsp_data_buf = RSP_DATA_BUF(shared_mem);
 }
 
-static void send(unsigned long data) {
+static void send_message(unsigned long m0, unsigned long m1, unsigned long m2, unsigned long m3) {
     unsigned long idx;
     unsigned long *slot;
 
@@ -47,8 +47,11 @@ static void send(unsigned long data) {
         /* spin for available idx from free ring */
     }
 
-    slot = (unsigned long *)rsp_data_buf + idx;
-    slot[0] = data;
+    slot = (unsigned long *)((char *)rsp_data_buf + idx * DATA_SLOT_SIZE);
+    slot[0] = m0;
+    slot[1] = m1;
+    slot[2] = m2;
+    slot[3] = m3;
 
     lfring_enqueue((struct lfring *)rsp_aring->ring, RING_ORDER, idx, false);
 
@@ -74,8 +77,8 @@ again:
 retry:
         fails = 0;
 
-        slot = (unsigned long *)req_data_buf + idx;
-        send(slot[0]);
+        slot = (unsigned long *)((char *)req_data_buf + idx * DATA_SLOT_SIZE);
+        send_message(slot[0], slot[1], slot[2], slot[3]);
 
         lfring_enqueue((struct lfring *) req_fring->ring,
             RING_ORDER, idx, false);
