@@ -9,3 +9,16 @@ $ ln -s ../src/app.c app.c
 $ cd ../dynamic-3_build
 $ ninja
 $ ./simulate
+
+# CMakeCache.txt
+# serial console configuration
+LibPlatSupportX86ConsoleDevice:STRING=com2
+LibPlatSupportX86ConsoleDevice-ADVANCED:INTERNAL=2
+LibPlatSupportX86ConsoleDeviceCom1:INTERNAL=OFF
+LibPlatSupportX86ConsoleDeviceCom2:INTERNAL=ON
+
+# number of cpu configuation
+KernelMaxNumNodes-ADVANCED:INTERNAL
+
+# Log level
+LibUtilsDefaultZfLogLevel:STRING=3
