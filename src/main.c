@@ -76,6 +76,7 @@ UNUSED static int thread_2_stack[THREAD_2_STACK_SIZE];
 /* tls region for the new thread */
 static char tls_region[CONFIG_SEL4RUNTIME_STATIC_TLS] = {};
 
+static handle_t *hds[NUM_HANDLE] = {0};
 static struct fring *req_fring = NULL;
 static struct fring *rsp_fring = NULL;
 static struct aring *req_aring = NULL;
@@ -92,6 +93,23 @@ static uint64_t sem_up_overhead = 0;
 static uint64_t start, end;
 #define ITER 1000000
 
+static _Atomic(struct wfring_state *) handle_tail = ATOMIC_VAR_INIT(NULL);
+static void register_ring(queue_t *q, handle_t *th) {
+    wfring_init_state((struct wfring *) q->ring, &th->state);
+
+    struct wfring_state *tail = atomic_load(&handle_tail);
+    if (tail == NULL) {
+        th->state.next = &th->state;
+        if (atomic_compare_exchange_strong(&handle_tail, &tail, &th->state))
+            return;
+    }
+
+    struct wfring_state *next = atomic_load(&tail->next);
+    do {
+        th->state.next = next;
+    } while (!atomic_compare_exchange_weak(&tail->next, &next, &th->state));
+}
+
 static void init_rings(void *shared_mem) {
     printf("Main: init_rings SHARED_PAGES: %ld\n", SHARED_PAGES);
 
@@ -102,14 +120,29 @@ static void init_rings(void *shared_mem) {
     req_data_buf = REQ_DATA_BUF(shared_mem);
     rsp_data_buf = RSP_DATA_BUF(shared_mem);
 
-    /* init ring */
-    lfring_init_fill((struct lfring *)req_fring->ring, 0, BUFFER_SIZE, RING_ORDER);
-    lfring_init_fill((struct lfring *)rsp_fring->ring, 0, BUFFER_SIZE, RING_ORDER);
-    lfring_init_empty((struct lfring *)req_aring->ring, RING_ORDER);
-    lfring_init_empty((struct lfring *)rsp_aring->ring, RING_ORDER);
+    /* init rings */
+    wfring_init_fill((struct wfring *)req_fring->q.ring, 0, BUFFER_SIZE, WCQ_ORDER);
+    wfring_init_fill((struct wfring *)rsp_fring->q.ring, 0, BUFFER_SIZE, WCQ_ORDER);
+    wfring_init_empty((struct wfring *)req_aring->q.ring, WCQ_ORDER);
+    wfring_init_empty((struct wfring *)rsp_aring->q.ring, WCQ_ORDER);
 
-    atomic_init(&req_fring->readers, 1);
-    atomic_init(&rsp_fring->readers, 1);
+    /* allocate handles */
+    hds[REQ_FRING_HD] = align_malloc(PAGE_SIZE, sizeof(handle_t));
+    assert(hds[REQ_FRING_HD] != NULL);
+    hds[RSP_FRING_HD] = align_malloc(PAGE_SIZE, sizeof(handle_t));
+    assert(hds[RSP_FRING_HD] != NULL);
+    hds[REQ_ARING_HD] = align_malloc(PAGE_SIZE, sizeof(handle_t));
+    assert(hds[REQ_ARING_HD] != NULL);
+    hds[RSP_ARING_HD] = align_malloc(PAGE_SIZE, sizeof(handle_t));
+    assert(hds[RSP_ARING_HD] != NULL);
+
+    /* register rings */
+    register_ring(&req_fring->q, hds[REQ_FRING_HD]);
+    register_ring(&rsp_fring->q, hds[RSP_FRING_HD]);
+    register_ring(&req_aring->q, hds[REQ_ARING_HD]);
+    register_ring(&rsp_aring->q, hds[RSP_ARING_HD]);
+
+    /* init synchronization variables */
     atomic_init(&req_aring->readers, 0);
     atomic_init(&rsp_aring->readers, 0);
 }
@@ -118,7 +151,8 @@ static void send_message(unsigned long message) {
     unsigned long idx;
     unsigned long *slot;
 
-    while ((idx = lfring_dequeue((struct lfring *) req_fring->ring, RING_ORDER, false)) == LFRING_EMPTY) {
+    while ((idx = wfring_dequeue((struct wfring *) req_fring->q.ring,
+        WCQ_ORDER, false, &hds[REQ_FRING_HD]->state)) == WFRING_EMPTY) {
         /* spin for available idx from free ring */
     }
 
@@ -128,7 +162,7 @@ static void send_message(unsigned long message) {
     slot[2] = message + 2;
     slot[3] = message + 3;
 
-    lfring_enqueue((struct lfring *)req_aring->ring, RING_ORDER, idx, false);
+    wfring_enqueue((struct wfring *)req_aring->q.ring, WCQ_ORDER, idx, false, &hds[REQ_ARING_HD]->state);
 
     if (atomic_load(&req_aring->readers) <= 0) {
         seL4_Signal(sender_ep_cap_path.capPtr);
@@ -169,25 +203,25 @@ start_over:
     atomic_store(&rsp_aring->readers, 1);
     fails = 0;
 again:
-    while ((idx = lfring_dequeue((struct lfring *)rsp_aring->ring,
-        RING_ORDER, false)) != LFRING_EMPTY) {
+    while ((idx = wfring_dequeue((struct wfring *)rsp_aring->q.ring,
+        WCQ_ORDER, false, &hds[RSP_ARING_HD]->state)) != WFRING_EMPTY) {
 retry:
         fails = 0;
 
         slot = (unsigned long *)((char *)rsp_data_buf + idx * DATA_SLOT_SIZE);
         receive_message(slot[0], slot[1], slot[2], slot[3]);
 
-        lfring_enqueue((struct lfring *) rsp_fring->ring,
-            RING_ORDER, idx, false);
+        wfring_enqueue((struct wfring *) rsp_fring->q.ring,
+            WCQ_ORDER, idx, false, &hds[RSP_FRING_HD]->state);
     }
     if (++fails < 1024) {
         goto again;
     }
     atomic_store(&rsp_aring->readers, -1);
 
-    idx = lfring_dequeue((struct lfring *)rsp_aring->ring,
-        RING_ORDER, false);
-    if (idx != LFRING_EMPTY) {
+    idx = wfring_dequeue((struct wfring *)rsp_aring->q.ring,
+        WCQ_ORDER, false, &hds[RSP_ARING_HD]->state);
+    if (idx != WFRING_EMPTY) {
         atomic_store(&rsp_aring->readers, 1);
         goto retry;
     }
